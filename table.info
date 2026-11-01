@@ -1,0 +1,1391 @@
+Perfect. I'll use exactly these column names in your existing Oracle 11g `INFO` table:
+
+| Column       | Purpose           |
+| ------------ | ----------------- |
+| `EMP_ID`     | Employee ID       |
+| `FULL_NAME`  | Employee name     |
+| `DEPARTMENT` | Department        |
+| `POSITION`   | Job position      |
+| `JOIN_DATE`  | Joining date      |
+| `SALARY`     | Salary            |
+| `PERF_SCORE` | Performance score |
+| `OFFICE_LOC` | Office location   |
+
+I'll build the application for JDK 1.6 + Tomcat 6 + Oracle 11g, using JSP, Servlets and JDBC. The dashboard will retrieve employee records and counts directly from your database.
+
+## 1. Project structure
+
+```
+EmployeeManagementSystem/
+│
+├── src/
+│   └── com/ems/
+│       ├── DBConnection.java
+│       ├── Employee.java
+│       ├── EmployeeDAO.java
+│       └── EmployeeServlet.java
+│
+└── WebContent/
+    ├── dashboard.jsp
+    ├── employee-form.jsp
+    ├── css/
+    │   └── style.css
+    └── WEB-INF/
+        └── web.xml
+```
+
+Add `ojdbc6.jar` to your project's `WEB-INF/lib` folder. It is the Oracle JDBC driver suitable for Java 6.
+
+## 2. Database connection – DBConnection.java
+
+Change the database username, password and SID to match your Oracle installation.
+
+```
+
+package com.ems;
+
+import java.sql.Connection;
+import java.sql.DriverManager;
+
+public class DBConnection {
+
+    private static final String URL =
+        "jdbc:oracle:thin:@localhost:1521:XE";
+
+    private static final String USER = "system";
+    private static final String PASSWORD = "your_password";
+
+    public static Connection getConnection() throws Exception {
+
+        Class.forName("oracle.jdbc.driver.OracleDriver");
+
+        Connection con = DriverManager.getConnection(
+            URL, USER, PASSWORD
+        );
+
+        return con;
+    }
+}
+
+```
+
+## 3. Employee model – Employee.java
+
+```
+
+package com.ems;
+
+import java.sql.Date;
+
+public class Employee {
+
+    private int empId;
+    private String fullName;
+    private String department;
+    private String position;
+    private Date joinDate;
+    private double salary;
+    private double perfScore;
+    private String officeLoc;
+
+    public int getEmpId() {
+        return empId;
+    }
+
+    public void setEmpId(int empId) {
+        this.empId = empId;
+    }
+
+    public String getFullName() {
+        return fullName;
+    }
+
+    public void setFullName(String fullName) {
+        this.fullName = fullName;
+    }
+
+    public String getDepartment() {
+        return department;
+    }
+
+    public void setDepartment(String department) {
+        this.department = department;
+    }
+
+    public String getPosition() {
+        return position;
+    }
+
+    public void setPosition(String position) {
+        this.position = position;
+    }
+
+    public Date getJoinDate() {
+        return joinDate;
+    }
+
+    public void setJoinDate(Date joinDate) {
+        this.joinDate = joinDate;
+    }
+
+    public double getSalary() {
+        return salary;
+    }
+
+    public void setSalary(double salary) {
+        this.salary = salary;
+    }
+
+    public double getPerfScore() {
+        return perfScore;
+    }
+
+    public void setPerfScore(double perfScore) {
+        this.perfScore = perfScore;
+    }
+
+    public String getOfficeLoc() {
+        return officeLoc;
+    }
+
+    public void setOfficeLoc(String officeLoc) {
+        this.officeLoc = officeLoc;
+    }
+}
+
+```
+
+## 4. Database operations – EmployeeDAO.java
+
+This class retrieves, searches, inserts, updates and deletes employee records.
+
+```
+
+package com.ems;
+
+import java.sql.*;
+import java.util.ArrayList;
+import java.util.List;
+
+public class EmployeeDAO {
+
+    public List<Employee> getAllEmployees(String search)
+            throws Exception {
+
+        List<Employee> list = new ArrayList<Employee>();
+
+        Connection con = null;
+        PreparedStatement ps = null;
+        ResultSet rs = null;
+
+        try {
+            con = DBConnection.getConnection();
+
+            String sql =
+                "SELECT * FROM INFO " +
+                "WHERE TO_CHAR(EMP_ID) LIKE ? " +
+                "OR UPPER(FULL_NAME) LIKE ? " +
+                "ORDER BY EMP_ID";
+
+            ps = con.prepareStatement(sql);
+
+            String value = "%" + search.toUpperCase() + "%";
+
+            ps.setString(1, value);
+            ps.setString(2, value);
+
+            rs = ps.executeQuery();
+
+            while (rs.next()) {
+
+                Employee e = new Employee();
+
+                e.setEmpId(rs.getInt("EMP_ID"));
+                e.setFullName(rs.getString("FULL_NAME"));
+                e.setDepartment(rs.getString("DEPARTMENT"));
+                e.setPosition(rs.getString("POSITION"));
+                e.setJoinDate(rs.getDate("JOIN_DATE"));
+                e.setSalary(rs.getDouble("SALARY"));
+                e.setPerfScore(rs.getDouble("PERF_SCORE"));
+                e.setOfficeLoc(rs.getString("OFFICE_LOC"));
+
+                list.add(e);
+            }
+
+        } finally {
+            if (rs != null) rs.close();
+            if (ps != null) ps.close();
+            if (con != null) con.close();
+        }
+
+        return list;
+    }
+
+    public int getTotalEmployees() throws Exception {
+
+        Connection con = null;
+        Statement st = null;
+        ResultSet rs = null;
+
+        try {
+            con = DBConnection.getConnection();
+            st = con.createStatement();
+
+            rs = st.executeQuery(
+                "SELECT COUNT(*) FROM INFO"
+            );
+
+            if (rs.next()) {
+                return rs.getInt(1);
+            }
+
+        } finally {
+            if (rs != null) rs.close();
+            if (st != null) st.close();
+            if (con != null) con.close();
+        }
+
+        return 0;
+    }
+
+    public Employee getEmployeeById(int id) throws Exception {
+
+        Connection con = null;
+        PreparedStatement ps = null;
+        ResultSet rs = null;
+
+        try {
+            con = DBConnection.getConnection();
+
+            ps = con.prepareStatement(
+                "SELECT * FROM INFO WHERE EMP_ID = ?"
+            );
+
+            ps.setInt(1, id);
+
+            rs = ps.executeQuery();
+
+            if (rs.next()) {
+
+                Employee e = new Employee();
+
+                e.setEmpId(rs.getInt("EMP_ID"));
+                e.setFullName(rs.getString("FULL_NAME"));
+                e.setDepartment(rs.getString("DEPARTMENT"));
+                e.setPosition(rs.getString("POSITION"));
+                e.setJoinDate(rs.getDate("JOIN_DATE"));
+                e.setSalary(rs.getDouble("SALARY"));
+                e.setPerfScore(rs.getDouble("PERF_SCORE"));
+                e.setOfficeLoc(rs.getString("OFFICE_LOC"));
+
+                return e;
+            }
+
+        } finally {
+            if (rs != null) rs.close();
+            if (ps != null) ps.close();
+            if (con != null) con.close();
+        }
+
+        return null;
+    }
+
+    public void insertEmployee(Employee e) throws Exception {
+
+        Connection con = null;
+        PreparedStatement ps = null;
+
+        try {
+            con = DBConnection.getConnection();
+
+            String sql =
+                "INSERT INTO INFO " +
+                "(EMP_ID, FULL_NAME, DEPARTMENT, POSITION, " +
+                "JOIN_DATE, SALARY, PERF_SCORE, OFFICE_LOC) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+
+            ps = con.prepareStatement(sql);
+
+            ps.setInt(1, e.getEmpId());
+            ps.setString(2, e.getFullName());
+            ps.setString(3, e.getDepartment());
+            ps.setString(4, e.getPosition());
+            ps.setDate(5, e.getJoinDate());
+            ps.setDouble(6, e.getSalary());
+            ps.setDouble(7, e.getPerfScore());
+            ps.setString(8, e.getOfficeLoc());
+
+            ps.executeUpdate();
+
+        } finally {
+            if (ps != null) ps.close();
+            if (con != null) con.close();
+        }
+    }
+
+    public void updateEmployee(Employee e) throws Exception {
+
+        Connection con = null;
+        PreparedStatement ps = null;
+
+        try {
+            con = DBConnection.getConnection();
+
+            String sql =
+                "UPDATE INFO SET FULL_NAME=?, DEPARTMENT=?, " +
+                "POSITION=?, JOIN_DATE=?, SALARY=?, " +
+                "PERF_SCORE=?, OFFICE_LOC=? WHERE EMP_ID=?";
+
+            ps = con.prepareStatement(sql);
+
+            ps.setString(1, e.getFullName());
+            ps.setString(2, e.getDepartment());
+            ps.setString(3, e.getPosition());
+            ps.setDate(4, e.getJoinDate());
+            ps.setDouble(5, e.getSalary());
+            ps.setDouble(6, e.getPerfScore());
+            ps.setString(7, e.getOfficeLoc());
+            ps.setInt(8, e.getEmpId());
+
+            ps.executeUpdate();
+
+        } finally {
+            if (ps != null) ps.close();
+            if (con != null) con.close();
+        }
+    }
+
+    public void deleteEmployee(int id) throws Exception {
+
+        Connection con = null;
+        PreparedStatement ps = null;
+
+        try {
+            con = DBConnection.getConnection();
+
+            ps = con.prepareStatement(
+                "DELETE FROM INFO WHERE EMP_ID=?"
+            );
+
+            ps.setInt(1, id);
+
+            ps.executeUpdate();
+
+        } finally {
+            if (ps != null) ps.close();
+            if (con != null) con.close();
+        }
+    }
+}
+
+```
+
+## 5. Servlet – EmployeeServlet.java
+
+This servlet controls the dashboard and all employee operations.
+
+```
+
+package com.ems;
+
+import java.io.IOException;
+import java.sql.Date;
+import java.util.List;
+
+import javax.servlet.ServletException;
+import javax.servlet.http.HttpServlet;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+
+public class EmployeeServlet extends HttpServlet {
+
+    private EmployeeDAO dao;
+
+    public void init() {
+        dao = new EmployeeDAO();
+    }
+
+    protected void doGet(
+        HttpServletRequest request,
+        HttpServletResponse response)
+        throws ServletException, IOException {
+
+        String action = request.getParameter("action");
+
+        try {
+
+            if ("edit".equals(action)) {
+
+                int id = Integer.parseInt(
+                    request.getParameter("id")
+                );
+
+                Employee employee = dao.getEmployeeById(id);
+
+                request.setAttribute("employee", employee);
+
+                request.getRequestDispatcher(
+                    "/employee-form.jsp"
+                ).forward(request, response);
+
+                return;
+            }
+
+            if ("new".equals(action)) {
+
+                request.getRequestDispatcher(
+                    "/employee-form.jsp"
+                ).forward(request, response);
+
+                return;
+            }
+
+            String search = request.getParameter("search");
+
+            if (search == null) {
+                search = "";
+            }
+
+            List<Employee> employees =
+                dao.getAllEmployees(search);
+
+            int totalEmployees = dao.getTotalEmployees();
+
+            request.setAttribute("employees", employees);
+            request.setAttribute("totalEmployees", totalEmployees);
+            request.setAttribute("search", search);
+
+            request.getRequestDispatcher(
+                "/dashboard.jsp"
+            ).forward(request, response);
+
+        } catch (Exception e) {
+
+            throw new ServletException(e);
+        }
+    }
+
+    protected void doPost(
+        HttpServletRequest request,
+        HttpServletResponse response)
+        throws ServletException, IOException {
+
+        request.setCharacterEncoding("UTF-8");
+
+        String action = request.getParameter("action");
+
+        try {
+
+            if ("delete".equals(action)) {
+
+                int id = Integer.parseInt(
+                    request.getParameter("id")
+                );
+
+                dao.deleteEmployee(id);
+
+            } else if ("save".equals(action)) {
+
+                Employee e = new Employee();
+
+                e.setEmpId(Integer.parseInt(
+                    request.getParameter("empId")
+                ));
+
+                e.setFullName(
+                    request.getParameter("fullName")
+                );
+
+                e.setDepartment(
+                    request.getParameter("department")
+                );
+
+                e.setPosition(
+                    request.getParameter("position")
+                );
+
+                String date = request.getParameter("joinDate");
+
+                if (date != null && date.trim().length() > 0) {
+                    e.setJoinDate(Date.valueOf(date));
+                }
+
+                e.setSalary(Double.parseDouble(
+                    request.getParameter("salary")
+                ));
+
+                e.setPerfScore(Double.parseDouble(
+                    request.getParameter("perfScore")
+                ));
+
+                e.setOfficeLoc(
+                    request.getParameter("officeLoc")
+                );
+
+                String mode = request.getParameter("mode");
+
+                if ("update".equals(mode)) {
+                    dao.updateEmployee(e);
+                } else {
+                    dao.insertEmployee(e);
+                }
+            }
+
+            response.sendRedirect(
+                request.getContextPath() + "/employees"
+            );
+
+        } catch (Exception e) {
+
+            throw new ServletException(e);
+        }
+    }
+}
+
+```
+
+## 6. Dashboard – dashboard.jsp
+
+This JSP displays real employee records retrieved by the servlet.
+
+```
+
+<%@ page language="java" contentType="text/html; charset=UTF-8"
+    pageEncoding="UTF-8"
+    import="java.util.*,com.ems.Employee" %>
+
+<%
+    List<Employee> employees =
+        (List<Employee>) request.getAttribute("employees");
+
+    Integer totalEmployees =
+        (Integer) request.getAttribute("totalEmployees");
+
+    String search = (String) request.getAttribute("search");
+
+    if (search == null) {
+        search = "";
+    }
+
+    if (employees == null) {
+        response.sendRedirect(
+            request.getContextPath() + "/employees"
+        );
+        return;
+    }
+
+    int total = totalEmployees == null ? 0 : totalEmployees.intValue();
+%>
+
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>EMS Dashboard</title>
+
+<link rel="stylesheet"
+href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+
+<link rel="stylesheet"
+href="css/style.css">
+
+</head>
+
+<body>
+
+<div class="container">
+
+    <aside class="sidebar">
+
+        <h2>EMS Portal</h2>
+
+        <ul>
+            <li class="active">
+                <a href="employees">Dashboard</a>
+            </li>
+
+            <li>
+                <a href="employees">Employees</a>
+            </li>
+
+            <li>
+                <a href="#">Attendance</a>
+            </li>
+
+            <li>
+                <a href="#">Leave Management</a>
+            </li>
+
+            <li>
+                <a href="#">Meetings</a>
+            </li>
+
+            <li>
+                <a href="#">Reports</a>
+            </li>
+
+            <li>
+                <a href="#">Settings</a>
+            </li>
+
+            <li>
+                <a href="#">Logout</a>
+            </li>
+        </ul>
+
+    </aside>
+
+
+    <main class="main-content">
+
+        <div class="header">
+
+            <h1>Dashboard</h1>
+
+            <div class="profile">
+                Welcome, Admin
+            </div>
+
+        </div>
+
+
+        <div class="welcome">
+
+            <h2>Welcome to Employee Management System!</h2>
+
+            <p>
+                Manage employees, attendance, meetings
+                and daily activities from one place.
+            </p>
+
+        </div>
+
+
+        <div class="cards">
+
+            <div class="card">
+                <h3>Total Employees</h3>
+                <h2><%= total %></h2>
+                <p>Registered employees</p>
+            </div>
+
+            <div class="card">
+                <h3>Present Today</h3>
+                <h2>--</h2>
+                <p>Attendance module not connected</p>
+            </div>
+
+            <div class="card">
+                <h3>On Leave</h3>
+                <h2>--</h2>
+                <p>Leave module not connected</p>
+            </div>
+
+            <div class="card">
+                <h3>Pending Requests</h3>
+                <h2>--</h2>
+                <p>Requests module not connected</p>
+            </div>
+
+        </div>
+
+
+        <div class="table-section">
+
+            <div class="table-header">
+
+                <h2>Employee Details</h2>
+
+                <a href="employees?action=new" class="add-btn">
+                    + Add Employee
+                </a>
+
+            </div>
+
+
+            <form action="employees" method="get" class="search-form">
+
+                <input type="text"
+                       name="search"
+                       value="<%= search.replace("&", "&amp;").replace("\"", "&quot;").replace("<", "&lt;").replace(">", "&gt;") %>"
+                       placeholder="Search by employee ID or name">
+
+                <button type="submit">
+                    Search
+                </button>
+
+                <a href="employees">Clear</a>
+
+            </form>
+
+
+            <div class="table-container">
+
+                <table>
+
+                    <thead>
+
+                        <tr>
+                            <th>Emp ID</th>
+                            <th>Full Name</th>
+                            <th>Department</th>
+                            <th>Position</th>
+                            <th>Join Date</th>
+                            <th>Salary (USD)</th>
+                            <th>Perf Score</th>
+                            <th>Office Loc</th>
+                            <th>Actions</th>
+                        </tr>
+
+                    </thead>
+
+                    <tbody>
+
+                    <%
+                        if (employees.size() > 0) {
+
+                            for (Employee e : employees) {
+                    %>
+
+                        <tr>
+
+                            <td><%= e.getEmpId() %></td>
+
+                            <td><%= e.getFullName() %></td>
+
+                            <td><%= e.getDepartment() %></td>
+
+                            <td><%= e.getPosition() %></td>
+
+                            <td><%= e.getJoinDate() == null ? "" : e.getJoinDate() %></td>
+
+                            <td><%= e.getSalary() %></td>
+
+                            <td><%= e.getPerfScore() %></td>
+
+                            <td><%= e.getOfficeLoc() %></td>
+
+                            <td>
+
+                                <a href="employees?action=edit&id=<%= e.getEmpId() %>">
+                                    Edit
+                                </a>
+
+                                <form action="employees"
+                                      method="post"
+                                      style="display:inline;">
+
+                                    <input type="hidden"
+                                           name="action"
+                                           value="delete">
+
+                                    <input type="hidden"
+                                           name="id"
+                                           value="<%= e.getEmpId() %>">
+
+                                    <button type="submit"
+                                            onclick="return confirm('Delete this employee?');">
+                                        Delete
+                                    </button>
+
+                                </form>
+
+                            </td>
+
+                        </tr>
+
+                    <%
+                            }
+
+                        } else {
+                    %>
+
+                        <tr>
+                            <td colspan="9">No employee records found.</td>
+                        </tr>
+
+                    <%
+                        }
+                    %>
+
+                    </tbody>
+
+                </table>
+
+            </div>
+
+        </div>
+
+
+        <div class="recent">
+
+            <h2>Recent Activities</h2>
+
+            <p>Employee records are loaded from the INFO table.</p>
+
+        </div>
+
+    </main>
+
+</div>
+
+</body>
+</html>
+
+```
+
+## 7. Add / Edit employee – employee-form.jsp
+
+The same form is used for both inserting a new employee and updating an existing employee.
+
+```
+
+<%@ page language="java" contentType="text/html; charset=UTF-8"
+    pageEncoding="UTF-8"
+    import="com.ems.Employee" %>
+
+<%
+    Employee employee =
+        (Employee) request.getAttribute("employee");
+
+    boolean editing = employee != null;
+
+    String joinDate = "";
+
+    if (editing && employee.getJoinDate() != null) {
+        joinDate = employee.getJoinDate().toString();
+    }
+%>
+
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Employee Form</title>
+
+<link rel="stylesheet" href="css/style.css">
+
+</head>
+
+<body>
+
+<div class="form-container">
+
+    <h2>
+        <%= editing ? "Update Employee" : "Add New Employee" %>
+    </h2>
+
+    <form action="employees" method="post">
+
+        <input type="hidden" name="action" value="save">
+
+        <input type="hidden"
+               name="mode"
+               value="<%= editing ? "update" : "insert" %>">
+
+
+        <label>Employee ID</label>
+
+        <input type="number"
+               name="empId"
+               value="<%= editing ? employee.getEmpId() : "" %>"
+               <%= editing ? "readonly" : "required" %>>
+
+
+        <label>Full Name</label>
+
+        <input type="text"
+               name="fullName"
+               value="<%= editing ? employee.getFullName() : "" %>"
+               required>
+
+
+        <label>Department</label>
+
+        <input type="text"
+               name="department"
+               value="<%= editing ? employee.getDepartment() : "" %>"
+               required>
+
+
+        <label>Position</label>
+
+        <input type="text"
+               name="position"
+               value="<%= editing ? employee.getPosition() : "" %>"
+               required>
+
+
+        <label>Join Date</label>
+
+        <input type="date"
+               name="joinDate"
+               value="<%= joinDate %>"
+               required>
+
+
+        <label>Salary</label>
+
+        <input type="number"
+               step="0.01"
+               name="salary"
+               value="<%= editing ? employee.getSalary() : "" %>"
+               required>
+
+
+        <label>Performance Score</label>
+
+        <input type="number"
+               step="0.1"
+               name="perfScore"
+               value="<%= editing ? employee.getPerfScore() : "" %>"
+               required>
+
+
+        <label>Office Location</label>
+
+        <input type="text"
+               name="officeLoc"
+               value="<%= editing ? employee.getOfficeLoc() : "" %>"
+               required>
+
+
+        <button type="submit">
+            <%= editing ? "Update Employee" : "Save Employee" %>
+        </button>
+
+        <a href="employees" class="cancel-btn">
+            Cancel
+        </a>
+
+    </form>
+
+</div>
+
+</body>
+</html>
+
+```
+
+## 8. CSS – css/style.css
+
+```
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    font-family: Arial, sans-serif;
+}
+
+body {
+    background: #f2f4f8;
+    color: #333;
+}
+
+.container {
+    display: flex;
+    min-height: 100vh;
+}
+
+/* Sidebar */
+
+.sidebar {
+    width: 230px;
+    background: #253858;
+    color: white;
+    padding: 25px 15px;
+    flex-shrink: 0;
+}
+
+.sidebar h2 {
+    text-align: center;
+    margin-bottom: 40px;
+}
+
+.sidebar ul {
+    list-style: none;
+}
+
+.sidebar li {
+    padding: 14px;
+    margin-bottom: 8px;
+    border-radius: 6px;
+}
+
+.sidebar li.active,
+.sidebar li:hover {
+    background: #3e5b89;
+}
+
+.sidebar a {
+    color: white;
+    text-decoration: none;
+    display: block;
+}
+
+/* Main content */
+
+.main-content {
+    flex: 1;
+    padding: 25px;
+    min-width: 0;
+}
+
+.header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 25px;
+}
+
+.header h1 {
+    color: #253858;
+}
+
+.profile {
+    background: white;
+    padding: 12px 18px;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+
+/* Welcome */
+
+.welcome {
+    background: linear-gradient(120deg,#315b94,#4d8bd2);
+    color: white;
+    padding: 25px;
+    border-radius: 12px;
+    margin-bottom: 25px;
+}
+
+.welcome h2 {
+    margin-bottom: 10px;
+}
+
+/* Cards */
+
+.cards {
+    display: grid;
+    grid-template-columns: repeat(4,1fr);
+    gap: 15px;
+    margin-bottom: 25px;
+}
+
+.card {
+    background: white;
+    padding: 20px;
+    border-radius: 10px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+
+.card h3 {
+    font-size: 14px;
+    color: #777;
+    margin-bottom: 12px;
+}
+
+.card h2 {
+    color: #253858;
+    font-size: 27px;
+}
+
+.card p {
+    margin-top: 8px;
+    font-size: 12px;
+    color: #888;
+}
+
+/* Employee table */
+
+.table-section,
+.recent {
+    background: white;
+    padding: 20px;
+    border-radius: 10px;
+    margin-bottom: 22px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+}
+
+.table-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 18px;
+}
+
+.table-header h2,
+.recent h2 {
+    color: #253858;
+    font-size: 20px;
+}
+
+.add-btn,
+button {
+    background: #315f9d;
+    color: white;
+    padding: 10px 15px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    text-decoration: none;
+}
+
+.add-btn:hover,
+button:hover {
+    background: #234875;
+}
+
+.search-form {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 18px;
+    flex-wrap: wrap;
+}
+
+.search-form input {
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    width: 250px;
+}
+
+.search-form a {
+    padding: 10px;
+    color: #315f9d;
+}
+
+.table-container {
+    width: 100%;
+    overflow-x: auto;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 850px;
+}
+
+th {
+    background: #e8edf4;
+    color: #253858;
+    text-align: left;
+}
+
+th, td {
+    padding: 12px 10px;
+    border: 1px solid #e1e5eb;
+    font-size: 13px;
+}
+
+tr:nth-child(even) {
+    background: #f8f9fb;
+}
+
+td a {
+    color: #315f9d;
+    text-decoration: none;
+    margin-right: 8px;
+}
+
+td button {
+    padding: 6px 9px;
+    background: #d9534f;
+    font-size: 12px;
+}
+
+.recent p {
+    margin-top: 15px;
+    color: #777;
+}
+
+/* Employee form */
+
+.form-container {
+    max-width: 600px;
+    margin: 40px auto;
+    padding: 30px;
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 3px 15px rgba(0,0,0,0.08);
+}
+
+.form-container h2 {
+    color: #253858;
+    margin-bottom: 25px;
+}
+
+.form-container label {
+    display: block;
+    margin: 15px 0 7px;
+    font-weight: bold;
+    font-size: 14px;
+}
+
+.form-container input {
+    width: 100%;
+    padding: 11px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+}
+
+.form-container button {
+    margin-top: 22px;
+}
+
+.cancel-btn {
+    display: inline-block;
+    margin-left: 10px;
+    color: #555;
+    text-decoration: none;
+}
+
+@media(max-width:1000px) {
+    .cards {
+        grid-template-columns: repeat(2,1fr);
+    }
+}
+
+@media(max-width:650px) {
+    .container {
+        display: block;
+    }
+
+    .sidebar {
+        width: 100%;
+    }
+
+    .sidebar ul {
+        display: flex;
+        flex-wrap: wrap;
+    }
+
+    .main-content {
+        padding: 12px;
+    }
+
+    .cards {
+        grid-template-columns: 1fr;
+    }
+}
+
+```
+
+## 9. Servlet configuration – WEB-INF/web.xml
+
+Tomcat 6 uses the Servlet 2.5 deployment descriptor. Configure the servlet here rather than using `@WebServlet`.
+
+```
+
+<?xml version="1.0" encoding="UTF-8"?>
+
+<web-app xmlns="http://java.sun.com/xml/ns/javaee"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://java.sun.com/xml/ns/javaee
+         http://java.sun.com/xml/ns/javaee/web-app_2_5.xsd"
+         version="2.5">
+
+    <display-name>Employee Management System</display-name>
+
+    <servlet>
+        <servlet-name>EmployeeServlet</servlet-name>
+        <servlet-class>com.ems.EmployeeServlet</servlet-class>
+    </servlet>
+
+    <servlet-mapping>
+        <servlet-name>EmployeeServlet</servlet-name>
+        <url-pattern>/employees</url-pattern>
+    </servlet-mapping>
+
+    <welcome-file-list>
+        <welcome-file>employees</welcome-file>
+    </welcome-file-list>
+
+</web-app>
+
+```
+
+## 10. Oracle 11g table structure
+
+Your existing table should have these columns. Run:
+
+```
+DESC INFO;
+```
+
+If you haven't created the table yet, you can use:
+
+```
+CREATE TABLE INFO (
+    EMP_ID NUMBER(10) PRIMARY KEY,
+    FULL_NAME VARCHAR2(100),
+    DEPARTMENT VARCHAR2(50),
+    POSITION VARCHAR2(50),
+    JOIN_DATE DATE,
+    SALARY NUMBER(10,2),
+    PERF_SCORE NUMBER(3,1),
+    OFFICE_LOC VARCHAR2(100)
+);
+```
+
+Example records for testing:
+
+```
+INSERT INTO INFO VALUES
+(1, 'John Carter', 'Sales', 'Manager',
+ TO_DATE('2023-01-01','YYYY-MM-DD'), 85000, 4.5, 'San Francisco');
+
+INSERT INTO INFO VALUES
+(2, 'Daniel Divter', 'Department', 'Manager',
+ TO_DATE('2023-01-05','YYYY-MM-DD'), 80000, 4.5, 'San Francisco');
+
+INSERT INTO INFO VALUES
+(3, 'Eleivin Bengiz', 'Employee', 'Manager',
+ TO_DATE('2023-01-10','YYYY-MM-DD'), 70000, 4.5, 'San City');
+
+COMMIT;
+```
+
+## 11. How to configure and run
+
+1. Create a Dynamic Web Project in Eclipse.
+2. Select JDK 1.6.
+3. Configure Tomcat 6.
+4. Create the Java package `com.ems`.
+5. Add all four Java files.
+6. Create the JSP files and CSS file in the specified locations.
+7. Add `ojdbc6.jar` to `WEB-INF/lib`.
+8. Update the Oracle username, password, host and SID in `DBConnection.java`.
+9. Run the project on Tomcat.
+
+Open:
+
+```
+http://localhost:8080/EmployeeManagementSystem/employees
+```
+
+## Expected functionality
+
+Implemented in the code
+
+- Live employee count from Oracle.
+- Live employee table from `INFO`.
+- Search by employee ID or name.
+- Add employee.
+- Edit employee.
+- Delete employee.
+- Employee details displayed in the dashboard.
+
+Not connected yet
+
+- Attendance
+- Leave management
+- Meeting management
+- Login authentication
+- Reports
+
+These need their own database tables and backend functionality.
+
+One important point: The code assumes `EMP_ID` is manually entered, `JOIN_DATE` is an Oracle `DATE`, and `SALARY` and `PERF_SCORE` are numeric columns. Also, change the example Oracle credentials before running. The current implementation is a learning/demo version; production use should add authentication, validation, and safer credential management.
